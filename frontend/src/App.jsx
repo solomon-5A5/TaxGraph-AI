@@ -48,23 +48,64 @@ const AlertItem = ({ type, time, title, message }) => {
 
 // --- MAIN APPLICATION ---
 export default function App() {
-  // 1. Setup React State to hold our API data
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const [aiInsight, setAiInsight] = useState("Initializing AI Engine...");
+  const [fraudTable, setFraudTable] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // 🔥 NEW: Modal & Upload State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // 2. Fetch the data from FastAPI when the component loads
+  const fetchAI = () => {
+    setAiInsight("Analyzing new graph geometry...");
+    fetch('http://127.0.0.1:8000/api/ai-insight')
+      .then(res => res.json())
+      .then(data => {
+        setAiInsight(data.insight);
+        setFraudTable(data.fraud_table || []);
+      })
+      .catch(err => setAiInsight("AI Engine Offline."));
+  };
+
   useEffect(() => {
     fetch('http://127.0.0.1:8000/api/graph-data')
       .then(res => res.json())
       .then(data => {
         setGraphData(data);
         setIsLoading(false);
+        fetchAI();
       })
-      .catch(err => {
-        console.error("Error fetching graph data:", err);
-        setIsLoading(false);
-      });
+      .catch(err => setIsLoading(false));
   }, []);
+
+  // 🔥 NEW: Handle the Form Submit
+  const handleUpload = async (e) => {
+    e.preventDefault();
+    setIsUploading(true);
+    
+    const formData = new FormData();
+    formData.append('taxpayers', e.target.taxpayers.files[0]);
+    formData.append('gstr1', e.target.gstr1.files[0]);
+    formData.append('gstr2b', e.target.gstr2b.files[0]);
+    formData.append('gstr3b', e.target.gstr3b.files[0]);
+    formData.append('fraud_labels', e.target.fraud_labels.files[0]);
+
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const newGraphData = await res.json();
+      
+      setGraphData(newGraphData); // Instantly update the graph!
+      setIsModalOpen(false);      // Close modal
+      fetchAI();                  // Trigger AI to write a new report
+    } catch (err) {
+      console.error("Upload failed", err);
+    }
+    setIsUploading(false);
+  };
 
   return (
     <div className="bg-slate-50 text-slate-900 overflow-hidden h-screen flex font-sans">
@@ -92,7 +133,9 @@ export default function App() {
         </div>
         
         <div className="mt-auto p-4 border-t border-slate-100">
-          <button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-full shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2">
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-full shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2">
             <Plus size={18} /> New Analysis
           </button>
         </div>
@@ -173,16 +216,81 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Live Alerts Feed */}
+              {/* LIVE ALERTS & AI INSIGHTS */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
                 <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white">
-                  <h3 className="font-semibold text-slate-900">Live Alerts Feed</h3>
-                  <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    ✨ Gemini AI Analysis
+                  </h3>
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-600"></span>
+                  </span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-0">
-                  <AlertItem type="Critical" time="Just Now" title="Circular Trading Detected" message="Algorithm detected a closed-loop recursive invoicing ring. Transactions flagged in red on the graph." />
-                  <AlertItem type="Warning" time="15m ago" title="High Risk Counterparty" message="Multiple active taxpayers trading with globally suspended entity." />
-                  <AlertItem type="Info" time="1h ago" title="Data Ingestion Complete" message={`Successfully processed ${graphData.links.length} invoices across ${graphData.nodes.length} taxpayers.`} />
+                
+                <div className="flex-1 overflow-y-auto p-5 bg-gradient-to-b from-indigo-50/50 to-white">
+                  {isLoading ? (
+                    <div className="animate-pulse flex flex-col gap-3">
+                      <div className="h-4 bg-indigo-100 rounded w-3/4"></div>
+                      <div className="h-4 bg-indigo-100 rounded w-full"></div>
+                      <div className="h-4 bg-indigo-100 rounded w-5/6"></div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="inline-block px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full mb-3 border border-rose-200 uppercase tracking-wider">
+                        Critical Threat Detected
+                      </div>
+                      <p className="text-sm text-slate-700 leading-relaxed font-medium mb-4">
+                        {aiInsight}
+                      </p>
+                      
+                      {/* 🔥 FRAUD TABLE */}
+                      {fraudTable && fraudTable.length > 0 && (
+                        <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm mb-4">
+                          <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                  GSTIN
+                                </th>
+                                <th scope="col" className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                  Role
+                                </th>
+                                <th scope="col" className="px-3 py-2 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                  Value
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-200 text-xs">
+                              {fraudTable.map((row, index) => (
+                                <tr key={index} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-900">
+                                    {row.gstin.slice(0, 12)}
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap">
+                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      row.role.includes('Mastermind') 
+                                        ? 'bg-red-100 text-red-700' 
+                                        : 'bg-orange-100 text-orange-700'
+                                    }`}>
+                                      {row.role}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                                    {row.formatted_value}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      
+                      <button className="mt-4 w-full py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
+                        Generate DRC-01 Show Cause Notice
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -190,6 +298,58 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* 🔥 THE UPLOAD MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900">Upload Forensic Data</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            
+            <form onSubmit={handleUpload} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Taxpayer Registry (CSV)</label>
+                <input type="file" name="taxpayers" accept=".csv" required 
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-1 Invoices (CSV)</label>
+                <input type="file" name="gstr1" accept=".csv" required 
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-2B Invoices (CSV)</label>
+                <input type="file" name="gstr2b" accept=".csv" required 
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-3B Summary (CSV)</label>
+                <input type="file" name="gstr3b" accept=".csv" required 
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fraud Labels (CSV)</label>
+                <input type="file" name="fraud_labels" accept=".csv" required 
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+              </div>
+
+              <div className="pt-4">
+                <button type="submit" disabled={isUploading} 
+                  className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-xl hover:bg-indigo-700 transition-colors flex justify-center items-center disabled:opacity-50">
+                  {isUploading ? <RefreshCw className="animate-spin mr-2" size={18} /> : null}
+                  {isUploading ? "Processing Graph Geometry..." : "Run AI Analysis"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
