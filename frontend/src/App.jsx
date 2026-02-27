@@ -1,89 +1,159 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Network, LayoutDashboard, Receipt, Bell, Settings, Users, Plus, 
-  LogOut, Search, HelpCircle, RefreshCw, Calendar, Download, 
-  TrendingUp, CheckCircle, AlertTriangle, TrendingDown, Shield, 
-  ZoomIn, ZoomOut, Filter, Building2, Store, Landmark, Truck 
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import {
+  Network, LayoutDashboard, Receipt, Bell, Plus,
+  RefreshCw, Search, Shield, MessageSquare, AlertTriangle,
+  Activity, X, CheckCircle, XCircle, Info, History
 } from 'lucide-react';
 
-import NetworkGraph from './NetworkGraph';
+import DashboardPage from './pages/DashboardPage';
+import ReconciliationPage from './pages/ReconciliationPage';
+import FraudPage from './pages/FraudPage';
+import GraphPage from './pages/GraphPage';
+import AlertsPage from './pages/AlertsPage';
+import QueryPage from './pages/QueryPage';
+import AnomalyPage from './pages/AnomalyPage';
 
-// --- REUSABLE COMPONENTS ---
-const MetricCard = ({ title, value, icon: Icon, trendStr, isTrendUp, iconBg, iconColor, trendColor, trendBg, progressColor, progressWidth }) => (
-  <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-    <div className="flex justify-between items-start mb-4">
-      <div className={`p-2 rounded-lg ${iconBg} ${iconColor}`}><Icon size={24} /></div>
-      <span className={`flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${trendColor} ${trendBg}`}>
-        {isTrendUp ? <TrendingUp size={14} className="mr-1" /> : <TrendingDown size={14} className="mr-1" />}
-        {trendStr}
-      </span>
-    </div>
-    <div>
-      <p className="text-slate-500 text-sm font-medium">{title}</p>
-      <h3 className="text-slate-900 text-2xl font-bold mt-1">{value}</h3>
-    </div>
-    <div className="mt-4 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-      <div className={`h-full rounded-full ${progressColor}`} style={{ width: progressWidth }}></div>
-    </div>
-  </div>
-);
+const API = 'http://127.0.0.1:8000';
 
-const AlertItem = ({ type, time, title, message }) => {
-  const styles = {
-    Critical: "bg-rose-100 text-rose-700 border-rose-200",
-    Warning: "bg-orange-100 text-orange-700 border-orange-200",
-    Info: "bg-slate-100 text-slate-600 border-slate-200"
+const NAV_ITEMS = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/reconciliation', label: 'Reconciliation', icon: Receipt },
+  { to: '/graph', label: 'Graph Analysis', icon: Network },
+  { to: '/fraud', label: 'Fraud Detection', icon: Shield },
+  { to: '/anomalies', label: 'Anomalies', icon: Activity },
+  { to: '/alerts', label: 'Alerts', icon: Bell, badge: true },
+  { to: '/query', label: 'NL Query', icon: MessageSquare },
+];
+
+/* ── Toast Notification System ── */
+const ToastContext = React.createContext(() => {});
+export const useToast = () => React.useContext(ToastContext);
+
+function ToastContainer({ toasts, removeToast }) {
+  const iconMap = { success: CheckCircle, error: XCircle, info: Info, warning: AlertTriangle };
+  const colorMap = {
+    success: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    error: 'bg-rose-50 border-rose-200 text-rose-800',
+    info: 'bg-indigo-50 border-indigo-200 text-indigo-800',
+    warning: 'bg-amber-50 border-amber-200 text-amber-800',
   };
+  const iconColorMap = { success: 'text-emerald-500', error: 'text-rose-500', info: 'text-indigo-500', warning: 'text-amber-500' };
+
   return (
-    <div className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer group">
-      <div className="flex justify-between items-start mb-1">
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${styles[type]}`}>{type}</span>
-        <span className="text-xs text-slate-400">{time}</span>
-      </div>
-      <h4 className="text-sm font-semibold text-slate-800 mb-1 group-hover:text-indigo-600 transition-colors">{title}</h4>
-      <p className="text-xs text-slate-500 leading-relaxed">{message}</p>
+    <div className="fixed bottom-20 right-6 z-[100] flex flex-col gap-2 pointer-events-none">
+      {toasts.map(t => {
+        const Icon = iconMap[t.type] || Info;
+        return (
+          <div key={t.id}
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm animate-slide-in-right ${colorMap[t.type] || colorMap.info}`}>
+            <Icon size={18} className={iconColorMap[t.type]} />
+            <span className="text-sm font-medium flex-1">{t.message}</span>
+            <button onClick={() => removeToast(t.id)} className="opacity-50 hover:opacity-100 transition-opacity">
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
-};
+}
 
-// --- MAIN APPLICATION ---
-export default function App() {
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
-  const [aiInsight, setAiInsight] = useState("Initializing AI Engine...");
-  const [fraudTable, setFraudTable] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  
-  // 🔥 NEW: Modal & Upload State
+function AppLayout() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [backendStatus, setBackendStatus] = useState('checking');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const fetchAI = () => {
-    setAiInsight("Analyzing new graph geometry...");
-    fetch('http://127.0.0.1:8000/api/ai-insight')
-      .then(res => res.json())
-      .then(data => {
-        setAiInsight(data.insight);
-        setFraudTable(data.fraud_table || []);
-      })
-      .catch(err => setAiInsight("AI Engine Offline."));
-  };
-
-  useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/graph-data')
-      .then(res => res.json())
-      .then(data => {
-        setGraphData(data);
-        setIsLoading(false);
-        fetchAI();
-      })
-      .catch(err => setIsLoading(false));
+  // Toast management
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
-  // 🔥 NEW: Handle the Form Submit
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Backend health check
+  useEffect(() => {
+    const check = () => {
+      fetch(`${API}/api/v1/stats`, { signal: AbortSignal.timeout(3000) })
+        .then(r => r.ok ? setBackendStatus('online') : setBackendStatus('error'))
+        .catch(() => setBackendStatus('offline'));
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ⌘K keyboard shortcut
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+      if (e.key === 'Escape') setSearchOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) searchInputRef.current.focus();
+  }, [searchOpen]);
+
+  // Search debounce
+  useEffect(() => {
+    if (!searchQuery || searchQuery.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      fetch(`${API}/api/v1/search/${encodeURIComponent(searchQuery)}`)
+        .then(r => r.json())
+        .then(d => { setSearchResults(d.results || []); setSearchLoading(false); })
+        .catch(() => { setSearchResults([]); setSearchLoading(false); });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Close search on click outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Page title based on route
+  const getTitle = () => {
+    const titles = {
+      '/': 'Dashboard Overview',
+      '/reconciliation': 'Invoice Reconciliation',
+      '/graph': 'Network Graph Analysis',
+      '/fraud': 'Fraud Detection Engine',
+      '/anomalies': 'Statistical Anomaly Detection',
+      '/alerts': 'Alert Center',
+      '/query': 'Natural Language Query',
+    };
+    return titles[location.pathname] || 'Dashboard';
+  };
+
   const handleUpload = async (e) => {
     e.preventDefault();
     setIsUploading(true);
-    
+    addToast('Uploading forensic data...', 'info');
+
     const formData = new FormData();
     formData.append('taxpayers', e.target.taxpayers.files[0]);
     formData.append('gstr1', e.target.gstr1.files[0]);
@@ -92,264 +162,205 @@ export default function App() {
     formData.append('fraud_labels', e.target.fraud_labels.files[0]);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const newGraphData = await res.json();
-      
-      setGraphData(newGraphData); // Instantly update the graph!
-      setIsModalOpen(false);      // Close modal
-      fetchAI();                  // Trigger AI to write a new report
+      await fetch(`${API}/api/upload`, { method: 'POST', body: formData });
+      await fetch(`${API}/api/v1/reload`, { method: 'POST' });
+      setIsModalOpen(false);
+      addToast('Data uploaded and graph rebuilt successfully!', 'success');
+      setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
       console.error("Upload failed", err);
+      addToast('Upload failed — check backend connection', 'error');
     }
     setIsUploading(false);
   };
 
+  const handleSearchSelect = (gstin) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    navigate('/graph');
+    addToast(`Navigating to graph view for ${gstin}`, 'info');
+  };
+
+  const statusColor = backendStatus === 'online' ? 'bg-emerald-500' : backendStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-500';
+  const statusLabel = backendStatus === 'online' ? 'API Online' : backendStatus === 'offline' ? 'API Offline' : 'Checking...';
+
   return (
-    <div className="bg-slate-50 text-slate-900 overflow-hidden h-screen flex font-sans">
-      
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full flex-shrink-0 z-20 shadow-sm">
-        <div className="p-6 flex items-center gap-3">
-          <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-lg w-8 h-8 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-            <Network size={20} />
-          </div>
-          <div>
-            <h1 className="text-slate-900 font-semibold text-sm leading-tight">GSTGraph AI</h1>
-            <p className="text-slate-500 text-xs font-normal">Enterprise</p>
-          </div>
-        </div>
-        
-        <div className="px-4 flex flex-col gap-1 mt-2">
-          <div className="mb-4">
-            <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Platform</p>
-            <a className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-slate-100 text-indigo-600 font-medium transition-colors" href="#"><LayoutDashboard size={20} /> <span className="text-sm">Dashboard</span></a>
-            <a className="flex items-center gap-3 px-4 py-2.5 rounded-full text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors" href="#"><Receipt size={20} /> <span className="text-sm">Invoices</span></a>
-            <a className="flex items-center gap-3 px-4 py-2.5 rounded-full text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors" href="#"><Network size={20} /> <span className="text-sm">Graph Analysis</span></a>
-            <a className="flex items-center gap-3 px-4 py-2.5 rounded-full text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors" href="#"><Bell size={20} /> <span className="text-sm flex-1">Alerts</span><span className="bg-rose-100 text-rose-600 text-xs font-bold px-1.5 py-0.5 rounded-md">3</span></a>
-          </div>
-        </div>
-        
-        <div className="mt-auto p-4 border-t border-slate-100">
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-full shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2">
-            <Plus size={18} /> New Analysis
-          </button>
-        </div>
-      </aside>
-
-      {/* MAIN CONTENT */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
-        
-        {/* Header */}
-        <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
-          <h2 className="text-slate-800 text-lg font-semibold tracking-tight">Dashboard Overview</h2>
-          <div className="flex items-center gap-4">
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search size={18} className="text-slate-400" /></div>
-              <input type="text" placeholder="Search invoices..." className="block w-64 pl-10 pr-12 py-1.5 border-none rounded-lg bg-slate-100 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:bg-white transition-all text-sm" />
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><span className="text-slate-400 text-xs border border-slate-300 rounded px-1.5 py-0.5 font-medium bg-white">⌘K</span></div>
+    <ToastContext.Provider value={addToast}>
+      <div className="bg-slate-50 text-slate-900 overflow-hidden h-screen flex font-sans">
+        {/* SIDEBAR */}
+        <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full flex-shrink-0 z-20 shadow-sm">
+          <div className="p-6 flex items-center gap-3">
+            <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-lg w-8 h-8 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+              <Network size={20} />
+            </div>
+            <div>
+              <h1 className="text-slate-900 font-semibold text-sm leading-tight">TaxGraph AI</h1>
+              <p className="text-slate-500 text-xs font-normal">Enterprise</p>
             </div>
           </div>
-        </header>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-[1600px] mx-auto space-y-6">
-            
-            {/* Date Filter & Metrics */}
-            <div className="flex justify-between items-center mb-2">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <span>Last updated: just now</span>
-                {isLoading ? <RefreshCw size={14} className="animate-spin text-indigo-600" /> : <RefreshCw size={14} />}
-              </div>
-              <div className="flex gap-2">
-                <button className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 shadow-sm"><Calendar size={16} /> This Month</button>
-                <button className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-600 shadow-sm"><Download size={16} /> Export</button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <MetricCard title="Total Invoices" value={graphData.links.length || "0"} icon={Receipt} trendStr="12.5%" isTrendUp={true} iconBg="bg-indigo-50" iconColor="text-indigo-600" trendColor="text-emerald-600" trendBg="bg-emerald-50" progressColor="bg-indigo-600" progressWidth="70%" />
-              <MetricCard title="Active Taxpayers" value={graphData.nodes.length || "0"} icon={Building2} trendStr="5.2%" isTrendUp={true} iconBg="bg-emerald-50" iconColor="text-emerald-600" trendColor="text-emerald-600" trendBg="bg-emerald-50" progressColor="bg-emerald-500" progressWidth="88%" />
-              <MetricCard title="Mismatched" value="1,250" icon={AlertTriangle} trendStr="2.1%" isTrendUp={false} iconBg="bg-orange-50" iconColor="text-orange-500" trendColor="text-emerald-600" trendBg="bg-emerald-50" progressColor="bg-orange-400" progressWidth="15%" />
-              <MetricCard title="Fraud Flags" value="4" icon={Shield} trendStr="15.3%" isTrendUp={true} iconBg="bg-rose-50" iconColor="text-rose-500" trendColor="text-rose-600" trendBg="bg-rose-50" progressColor="bg-rose-500" progressWidth="8%" />
-            </div>
-
-            {/* Main Grid Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-              
-              {/* GRAPH ANALYSIS CANVAS */}
-              <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden relative group">
-                <div className="p-5 border-b border-slate-100 flex justify-between items-center z-10 bg-white">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Network Graph Analysis</h3>
-                    <p className="text-xs text-slate-500 mt-1">Visualizing entity relationships and circular trading patterns</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-slate-200"><ZoomIn size={18} /></button>
-                    <button className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-slate-200"><ZoomOut size={18} /></button>
-                    <button className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-slate-200"><Filter size={18} /></button>
-                  </div>
-                </div>
-
-                <div className="flex-1 w-full h-full relative bg-slate-50" style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '24px 24px' }}>
-                  
-                  {/* Loading State or Real Data */}
-                  {isLoading ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/80 z-20">
-                      <RefreshCw className="animate-spin text-indigo-600 mb-4" size={32} />
-                      <p className="text-slate-600 font-medium">Ingesting Live Graph Data...</p>
-                    </div>
-                  ) : (
-                    <NetworkGraph data={graphData} />
+          <div className="px-4 flex flex-col gap-1 mt-2">
+            <div className="mb-4">
+              <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Platform</p>
+              {NAV_ITEMS.map(item => (
+                <NavLink key={item.to} to={item.to} end={item.to === '/'}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-2.5 rounded-full transition-colors ${isActive ? 'bg-slate-100 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`
+                  }>
+                  <item.icon size={20} />
+                  <span className="text-sm flex-1">{item.label}</span>
+                  {item.badge && (
+                    <span className="bg-rose-100 text-rose-600 text-xs font-bold px-1.5 py-0.5 rounded-md">!</span>
                   )}
-                  
-                  <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-slate-200 p-2 text-xs text-slate-500 z-10 pointer-events-none">
-                    <div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span> Critical Risk</div>
-                    <div className="flex items-center gap-2 mb-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> Warning</div>
-                    <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-slate-300"></span> Normal</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* LIVE ALERTS & AI INSIGHTS */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white">
-                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                    ✨ Gemini AI Analysis
-                  </h3>
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-600"></span>
-                  </span>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-5 bg-gradient-to-b from-indigo-50/50 to-white">
-                  {isLoading ? (
-                    <div className="animate-pulse flex flex-col gap-3">
-                      <div className="h-4 bg-indigo-100 rounded w-3/4"></div>
-                      <div className="h-4 bg-indigo-100 rounded w-full"></div>
-                      <div className="h-4 bg-indigo-100 rounded w-5/6"></div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="inline-block px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full mb-3 border border-rose-200 uppercase tracking-wider">
-                        Critical Threat Detected
-                      </div>
-                      <p className="text-sm text-slate-700 leading-relaxed font-medium mb-4">
-                        {aiInsight}
-                      </p>
-                      
-                      {/* 🔥 FRAUD TABLE */}
-                      {fraudTable && fraudTable.length > 0 && (
-                        <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm mb-4">
-                          <table className="min-w-full divide-y divide-slate-200">
-                            <thead className="bg-slate-50">
-                              <tr>
-                                <th scope="col" className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                  GSTIN
-                                </th>
-                                <th scope="col" className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                  Role
-                                </th>
-                                <th scope="col" className="px-3 py-2 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                  Value
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-slate-200 text-xs">
-                              {fraudTable.map((row, index) => (
-                                <tr key={index} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-900">
-                                    {row.gstin.slice(0, 12)}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap">
-                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                      row.role.includes('Mastermind') 
-                                        ? 'bg-red-100 text-red-700' 
-                                        : 'bg-orange-100 text-orange-700'
-                                    }`}>
-                                      {row.role}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                                    {row.formatted_value}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      
-                      <button className="mt-4 w-full py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors">
-                        Generate DRC-01 Show Cause Notice
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
+                </NavLink>
+              ))}
             </div>
           </div>
-        </div>
-      </main>
 
-      {/* 🔥 THE UPLOAD MODAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="font-bold text-slate-900">Upload Forensic Data</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            
-            <form onSubmit={handleUpload} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Taxpayer Registry (CSV)</label>
-                <input type="file" name="taxpayers" accept=".csv" required 
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-1 Invoices (CSV)</label>
-                <input type="file" name="gstr1" accept=".csv" required 
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
-              </div>
+          <div className="mt-auto p-4 border-t border-slate-100">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-full shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2">
+              <Plus size={18} /> New Analysis
+            </button>
+          </div>
+        </aside>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-2B Invoices (CSV)</label>
-                <input type="file" name="gstr2b" accept=".csv" required 
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">GSTR-3B Summary (CSV)</label>
-                <input type="file" name="gstr3b" accept=".csv" required 
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Fraud Labels (CSV)</label>
-                <input type="file" name="fraud_labels" accept=".csv" required 
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
-              </div>
-
-              <div className="pt-4">
-                <button type="submit" disabled={isUploading} 
-                  className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-xl hover:bg-indigo-700 transition-colors flex justify-center items-center disabled:opacity-50">
-                  {isUploading ? <RefreshCw className="animate-spin mr-2" size={18} /> : null}
-                  {isUploading ? "Processing Graph Geometry..." : "Run AI Analysis"}
+        {/* MAIN CONTENT */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+          {/* Header */}
+          <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
+            <h2 className="text-slate-800 text-lg font-semibold tracking-tight">{getTitle()}</h2>
+            <div className="flex items-center gap-4">
+              <div className="relative" ref={searchRef}>
+                <button onClick={() => setSearchOpen(true)}
+                  className="flex items-center gap-2 w-64 pl-3 pr-3 py-1.5 border-none rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200/70 transition-all text-sm cursor-pointer text-left">
+                  <Search size={16} className="text-slate-400" />
+                  <span className="flex-1">Search GSTINs...</span>
+                  <span className="text-slate-400 text-xs border border-slate-300 rounded px-1.5 py-0.5 font-medium bg-white">⌘K</span>
                 </button>
+
+                {/* Search Dropdown */}
+                {searchOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-xl border border-slate-200 shadow-2xl overflow-hidden z-50">
+                    <div className="p-3 border-b border-slate-100">
+                      <div className="relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input ref={searchInputRef} type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                          placeholder="Search by GSTIN or legal name..."
+                          className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300" />
+                      </div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {searchLoading ? (
+                        <div className="p-4 flex items-center gap-2 text-sm text-slate-500">
+                          <RefreshCw size={14} className="animate-spin" /> Searching...
+                        </div>
+                      ) : searchResults.length > 0 ? (
+                        searchResults.map((r, i) => (
+                          <button key={i} onClick={() => handleSearchSelect(r.gstin)}
+                            className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors border-b border-slate-50 flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${r.status === 'Suspended' ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-mono font-medium text-slate-900 truncate">{r.gstin}</p>
+                              <p className="text-xs text-slate-500 truncate">{r.legal_name}</p>
+                            </div>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${r.status === 'Suspended' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {r.status}
+                            </span>
+                          </button>
+                        ))
+                      ) : searchQuery.length >= 2 ? (
+                        <div className="p-4 text-center text-sm text-slate-400">No matches found</div>
+                      ) : (
+                        <div className="p-4 text-center text-sm text-slate-400">Type at least 2 characters to search</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            </form>
+            </div>
+          </header>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-8">
+            <div className="max-w-[1600px] mx-auto">
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/reconciliation" element={<ReconciliationPage />} />
+                <Route path="/graph" element={<GraphPage />} />
+                <Route path="/fraud" element={<FraudPage />} />
+                <Route path="/anomalies" element={<AnomalyPage />} />
+                <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/query" element={<QueryPage />} />
+              </Routes>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+
+          {/* Status Footer */}
+          <footer className="h-7 bg-white border-t border-slate-200 flex items-center justify-between px-6 text-xs text-slate-500 flex-shrink-0">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${statusColor} ${backendStatus === 'online' ? '' : 'animate-pulse'}`} />
+                <span>{statusLabel}</span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <span>FastAPI · Groq LLM · NetworkX</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span>TaxGraph AI v2.0</span>
+              <span className="text-slate-300">|</span>
+              <span className="flex items-center gap-1"><History size={11} /> {new Date().toLocaleTimeString()}</span>
+            </div>
+          </footer>
+        </main>
+
+        {/* UPLOAD MODAL */}
+        {isModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="font-bold text-slate-900">Upload Forensic Data</h3>
+                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+
+              <form onSubmit={handleUpload} className="p-6 space-y-4">
+                {[
+                  { name: 'taxpayers', label: 'Taxpayer Registry (CSV)' },
+                  { name: 'gstr1', label: 'GSTR-1 Invoices (CSV)' },
+                  { name: 'gstr2b', label: 'GSTR-2B Invoices (CSV)' },
+                  { name: 'gstr3b', label: 'GSTR-3B Summary (CSV)' },
+                  { name: 'fraud_labels', label: 'Fraud Labels (CSV)' },
+                ].map(field => (
+                  <div key={field.name}>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{field.label}</label>
+                    <input type="file" name={field.name} accept=".csv" required
+                      className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-colors" />
+                  </div>
+                ))}
+                <div className="pt-4">
+                  <button type="submit" disabled={isUploading}
+                    className="w-full bg-indigo-600 text-white font-bold py-2.5 rounded-xl hover:bg-indigo-700 transition-colors flex justify-center items-center disabled:opacity-50">
+                    {isUploading ? <RefreshCw className="animate-spin mr-2" size={18} /> : null}
+                    {isUploading ? "Processing Graph Geometry..." : "Run AI Analysis"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Toast Container */}
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+      </div>
+    </ToastContext.Provider>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppLayout />
+    </BrowserRouter>
   );
 }

@@ -8,6 +8,18 @@ export default function NetworkGraph({ data }) {
   useEffect(() => {
     if (!data || !data.nodes || !data.links) return;
 
+    // Guard: D3 crashes if a link references a node ID not in the nodes array.
+    // This happens when invoices contain GSTINs absent from taxpayers.csv.
+    const nodeIds = new Set(data.nodes.map(n => n.id));
+    const safeData = {
+      nodes: data.nodes,
+      links: data.links.filter(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        return nodeIds.has(src) && nodeIds.has(tgt);
+      }),
+    };
+
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
     
@@ -32,7 +44,7 @@ export default function NetworkGraph({ data }) {
 
     // 2. Build Lookup Dictionaries for 1-hop trading
     let linkedByIndex = {};
-    data.links.forEach(d => {
+    safeData.links.forEach(d => {
       const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
       const targetId = typeof d.target === 'object' ? d.target.id : d.target;
       linkedByIndex[`${sourceId},${targetId}`] = true;
@@ -44,7 +56,7 @@ export default function NetworkGraph({ data }) {
 
     // 3. Pre-calculate Fraud Ecosystems (To isolate specific loops)
     const riskAdj = {};
-    data.links.forEach(l => {
+    safeData.links.forEach(l => {
       if (l.isRisk) {
         const s = typeof l.source === 'object' ? l.source.id : l.source;
         const t = typeof l.target === 'object' ? l.target.id : l.target;
@@ -84,8 +96,8 @@ export default function NetworkGraph({ data }) {
       .attr("d", "M0,-5 L10,0 L0,5 L3,0 Z"); 
 
     // 5. Setup Physics
-    const simulation = d3.forceSimulation(data.nodes)
-      .force("link", d3.forceLink(data.links).id(d => d.id).distance(120))
+    const simulation = d3.forceSimulation(safeData.nodes)
+      .force("link", d3.forceLink(safeData.links).id(d => d.id).distance(120))
       .force("charge", d3.forceManyBody().strength(-400))
       .force("collide", d3.forceCollide().radius(45))
       .force("x", d3.forceX())
@@ -95,7 +107,7 @@ export default function NetworkGraph({ data }) {
     const link = g.append("g")
       .attr("fill", "none") 
       .selectAll("path")
-      .data(data.links)
+      .data(safeData.links)
       .join("path")
       .attr("stroke", d => d.isRisk ? "#f43f5e" : "#cbd5e1")
       .attr("stroke-width", d => d.isRisk ? 3.5 : 1.5) // Much thicker fraud lines
@@ -105,7 +117,7 @@ export default function NetworkGraph({ data }) {
     // 7. Draw Nodes
     const node = g.append("g")
       .selectAll("g")
-      .data(data.nodes)
+      .data(safeData.nodes)
       .join("g")
       .attr("class", "transition-opacity duration-300")
       .call(drag(simulation));
