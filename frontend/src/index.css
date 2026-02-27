@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+body {
+  background-color: #0f172a; /* Dark mode FinTech vibe */
+  color: #f8fafc;
+}
