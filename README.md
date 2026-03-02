@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![Neo4j](https://img.shields.io/badge/Neo4j-Graph_Database-018bff?logo=neo4j&logoColor=white)
 ![NetworkX](https://img.shields.io/badge/NetworkX-Graph_Engine-blue)
 ![Groq](https://img.shields.io/badge/Groq_LLM-Llama_3.3_70B-orange)
 ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?logo=tailwindcss&logoColor=white)
@@ -65,7 +66,7 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 │                                                                   │
 │  ┌─────────────────── Services Layer ──────────────────────────┐  │
 │  │                                                             │  │
-│  │  GSTIngestionService    — Data loading + NetworkX graph     │  │
+│  │  GSTIngestionService    — Data loading + Neo4j/NetworkX graph     │  │
 │  │  ReconciliationEngine   — GSTR-1↔2B↔3B multi-join chain    │  │
 │  │  FraudDetectionEngine   — Circular/Shell/Reciprocal/Fake   │  │
 │  │  RiskScoringEngine      — Weighted heuristic risk scores   │  │
@@ -97,7 +98,43 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 
 ## ✨ Features
 
-### 🔬 Fraud Detection (4 Algorithms)
+### 🎬 Feature Demos
+
+Here are live walkthroughs of TaxGraph AI's core capabilities:
+
+**1. Secure Upload & Empty State**  
+Starts completely empty; prompts user to load 5 forensic datasets via modal.  
+![Upload Flow](assets/empty_state_demo_1772442685342.webp)
+
+**2. Analytics Dashboard**  
+Real-time KPI cards, graph preview, and AI-generated threat briefs.  
+![Dashboard Overview](assets/dashboard_demo_1772441448717.webp)
+
+**3. Interactive Graph Analysis**  
+D3.js force-directed graph with vendor risk sidebar profiles.  
+![Graph Analysis](assets/graph_demo_1772441519562.webp)
+
+**4. Multi-chain Reconciliation**  
+Sortable mismatched invoices with one-click LLM explanations.  
+![Reconciliation Engine](assets/reconciliation_demo_1772441588606.webp)
+
+**5. Multi-Pattern Fraud Detection**  
+NetworkX cycle detection, PageRank shell identifiers, reciprocal pairs.  
+![Fraud Detection](assets/fraud_demo_1772442131728.webp)
+
+**6. XGBoost ML Classification**  
+Predicts fraud probabilities and highlights top driving features.  
+![ML Classifier](assets/ml_demo_1772442320133.webp)
+
+**7. Statistical Anomaly Detection**  
+Flags statistical outliers using IQR and Z-Scores modeling.  
+![Statistical Anomalies](assets/anomaly_demo_1772442391566.webp)
+
+**8. Natural Language Querying**  
+"Chat" with the database — Groq translates English directly into Pandas/SQL.  
+![NL Query](assets/query_demo_1772442263868.webp)
+
+### 🔬 Fraud Detection (4 Graph Algorithms)
 
 | Algorithm | Method | Description |
 |---|---|---|
@@ -105,6 +142,15 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 | **Shell Companies** | PageRank anomaly | Flags entities with low graph importance but abnormally high transaction volume |
 | **Reciprocal Trading** | Bidirectional edge scan | Detects A↔B invoice pairs indicating round-tripping |
 | **Fake Invoices** | Pattern analysis | Identifies round-number amounts and repeated identical values between same parties |
+
+### 🤖 Machine Learning & Statistical Models
+
+| Feature | Description |
+|---|---|
+| **XGBoost Classifier** | Tree-based model trained on graph topology + financial fields to predict fraud probability |
+| **Feature Importance** | Extracts the top predictive variables (e.g., ITC Out/In Ratio, Weighted Degree) driving decisions |
+| **Z-Score Analytics** | Standard deviation-based anomaly detection for invoice values |
+| **IQR Outliers** | Interquartile Range analysis to flag extreme transactions independent of normal distributions |
 
 ### 📊 Reconciliation Engine
 
@@ -124,7 +170,7 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 | **Natural Language Query** | Ask questions in plain English — LLM converts to Pandas code and executes |
 | **Risk Scoring** | Weighted heuristic scoring combining graph features, filing behavior, and fraud labels |
 
-### 🖥️ Frontend (6 Pages)
+### 🖥️ Frontend (6+ Pages)
 
 | Page | Description |
 |---|---|
@@ -135,10 +181,11 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 | **Alert Center** | Severity-filtered alert feed from reconciliation + fraud engines |
 | **NL Query** | Chat-style interface with example queries, generated code viewer, and result tables |
 
-### 🌐 Other
+### 🌐 Other Frameworks
 
 | Feature | Description |
 |---|---|
+| **Secure Empty State** | Enforced "no pre-loaded data" initial state requiring new forensic uploads |
 | **CSV Upload** | Upload all 5 datasets through the browser UI modal |
 | **Interactive Network Graph** | D3.js force-directed graph with risk-based coloring, flowing animations, ring highlighting |
 | **Risk Leaderboard** | Top-N riskiest vendors ranked by weighted score |
@@ -152,7 +199,7 @@ TaxGraph AI ingests GST returns data (GSTR-1, GSTR-2B, GSTR-3B), builds a **dire
 | Layer | Technology |
 |---|---|
 | **Frontend** | React 19, Tailwind CSS v4, D3.js, Recharts, Lucide Icons, React Router v7, Vite 7 |
-| **Backend** | Python 3.9+, FastAPI, Pandas, NetworkX, Uvicorn |
+| **Backend** | Python 3.9+, FastAPI, Pandas, Neo4j, NetworkX, Uvicorn |
 | **AI/LLM** | Groq API → Llama 3.3 70B Versatile |
 | **Algorithms** | NetworkX `simple_cycles()`, PageRank, DFS Cycle Detection, Weighted Risk Scoring |
 | **Data Format** | 5 CSV files (GST return schemas) |
@@ -167,6 +214,7 @@ Before you begin, make sure you have:
 - **Node.js 18+** and **npm** — [Download](https://nodejs.org/)
 - **Git** — [Download](https://git-scm.com/)
 - **Groq API Key** (free) — [Get one here](https://console.groq.com/keys)
+- **Neo4j Database** (local or AuraDB) — For graph storage
 
 ---
 
@@ -191,7 +239,7 @@ source venv/bin/activate        # macOS/Linux
 # venv\Scripts\activate          # Windows
 
 # Install Python dependencies
-pip install fastapi uvicorn pandas networkx python-dotenv groq python-multipart
+pip install fastapi uvicorn pandas networkx neo4j python-dotenv groq python-multipart
 
 # Create your .env file with your Groq API key
 echo "GROQ_API_KEY=your_groq_api_key_here" > .env
@@ -254,7 +302,7 @@ The dashboard will be live at **http://localhost:5173** (Vite's default port).
 | Create virtual env | `python3 -m venv venv` | `backend/` |
 | Activate venv (macOS/Linux) | `source venv/bin/activate` | `backend/` |
 | Activate venv (Windows) | `venv\Scripts\activate` | `backend/` |
-| Install backend deps | `pip install fastapi uvicorn pandas networkx python-dotenv groq python-multipart` | `backend/` |
+| Install backend deps | `pip install fastapi uvicorn pandas networkx neo4j python-dotenv groq python-multipart` | `backend/` |
 | Set Groq API key | `echo "GROQ_API_KEY=your_key" > .env` | `backend/` |
 | Run backend | `python3 -m uvicorn main:app --reload` | `backend/` |
 | Install frontend deps | `npm install` | `frontend/` |
@@ -500,5 +548,5 @@ This project is licensed under the MIT License.
 ---
 
 <p align="center">
-  Built with ❤️ for India's tax integrity by <a href="https://github.com/solomon-5A5">Team Code Smashers</a>
+  Built with ❤️ for India's tax integrity by <a href="https://github.com/solomon-5A5">Solomon Pattapu</a>
 </p>

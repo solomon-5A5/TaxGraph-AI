@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, AlertTriangle, ArrowRight, Repeat, FileWarning, Building, Download } from 'lucide-react';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 const TAB_CONFIG = [
     { key: 'circular_trades', label: 'Circular Trading', icon: Repeat, color: 'rose' },

@@ -16,12 +16,29 @@ from services.explain import ExplainableAIService
 from services.nl_query import NLQueryEngine
 from services.alerts import AlertService
 from services.anomaly import AnomalyDetectionService
+from services.xgboost_classifier import XGBoostFraudClassifier
+from services.neo4j_driver import health_check as neo4j_health_check, close_driver as neo4j_close, create_indexes
 from datetime import datetime
 import json
 
 load_dotenv()  # Load variables from .env
 
 app = FastAPI(title="GSTGraph AI API")
+
+
+@app.on_event("startup")
+def startup_event():
+    """Initialize Neo4j connection on app startup."""
+    neo4j_health_check()
+    create_indexes()
+    print("🚀 GSTGraph AI API started with Neo4j")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Close Neo4j connection on app shutdown."""
+    neo4j_close()
+    print("🔌 Neo4j connection closed")
 
 # ─── Audit Trail ───
 _audit_log = []
@@ -51,7 +68,7 @@ app.add_middleware(
 
 def load_data():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "../data_pipeline")
+    data_dir = os.path.join(base_dir, "../uploads")
     os.makedirs(data_dir, exist_ok=True) # Ensure directory exists
 
     paths = {
@@ -142,7 +159,7 @@ async def upload_files(
 ):
     """Receives all 5 CSVs from the React UI drag-and-drop."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "../data_pipeline")
+    data_dir = os.path.join(base_dir, "../uploads")
     os.makedirs(data_dir, exist_ok=True)
 
     files_to_save = {
@@ -399,7 +416,7 @@ def _ensure_service_loaded():
     """Load data into the service if not already loaded."""
     if not _service.has_data():
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(base_dir, "../data_pipeline")
+        data_dir = os.path.join(base_dir, "../uploads")
         _service.load_from_disk(data_dir)
         _service.rebuild_graph()
 
@@ -419,7 +436,7 @@ def get_stats():
     recon_summary = recon.get_summary()
 
     # Run fraud detection for fraud count
-    fraud_engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    fraud_engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     fraud_patterns = fraud_engine.detect_all_patterns()
 
     # Generate alerts
@@ -469,7 +486,7 @@ def get_mismatches():
 def get_circular_trades():
     """Detect circular trading patterns."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     return {"circular_trades": engine.detect_circular_trading()}
 
 
@@ -477,7 +494,7 @@ def get_circular_trades():
 def get_shell_companies():
     """Detect suspected shell companies."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     return {"shell_companies": engine.detect_shell_companies()}
 
 
@@ -485,7 +502,7 @@ def get_shell_companies():
 def get_reciprocal_trades():
     """Detect reciprocal trading pairs."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     return {"reciprocal_trades": engine.detect_reciprocal_trading()}
 
 
@@ -493,7 +510,7 @@ def get_reciprocal_trades():
 def get_fake_invoices():
     """Detect fake invoice patterns."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     return {"fake_invoices": engine.detect_fake_invoices()}
 
 
@@ -501,7 +518,7 @@ def get_fake_invoices():
 def get_all_fraud_patterns():
     """Get all fraud patterns combined."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     return engine.detect_all_patterns()
 
 
@@ -510,7 +527,7 @@ def get_vendor_risk(gstin: str):
     """Get risk score for a specific vendor."""
     _ensure_service_loaded()
     engine = RiskScoringEngine(
-        _service.graph, _service.gstr1_df, _service.gstr2b_df,
+        _service.gstr1_df, _service.gstr2b_df,
         _service.gstr3b_df, _service.fraud_labels_df
     )
     return engine.compute_risk_score(gstin)
@@ -521,7 +538,7 @@ def get_risk_leaderboard():
     """Get top risky vendors."""
     _ensure_service_loaded()
     engine = RiskScoringEngine(
-        _service.graph, _service.gstr1_df, _service.gstr2b_df,
+        _service.gstr1_df, _service.gstr2b_df,
         _service.gstr3b_df, _service.fraud_labels_df
     )
     return {"leaderboard": engine.get_leaderboard()}
@@ -552,7 +569,7 @@ def explain_risk(gstin: str):
     """Explain why a vendor has a certain risk score."""
     _ensure_service_loaded()
     risk_engine = RiskScoringEngine(
-        _service.graph, _service.gstr1_df, _service.gstr2b_df,
+        _service.gstr1_df, _service.gstr2b_df,
         _service.gstr3b_df, _service.fraud_labels_df
     )
     risk_data = risk_engine.compute_risk_score(gstin)
@@ -586,7 +603,7 @@ def get_alerts():
     recon.full_chain_reconciliation()
     mismatches = recon.get_mismatches()
 
-    fraud_engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    fraud_engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     fraud_patterns = fraud_engine.detect_all_patterns()
 
     alerts = _alert_service.generate_alerts(mismatches, fraud_patterns)
@@ -599,11 +616,13 @@ def reload_data():
     global _service
     _service = GSTIngestionService()
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "../data_pipeline")
+    data_dir = os.path.join(base_dir, "../uploads")
     _service.load_from_disk(data_dir)
     _service.rebuild_graph()
-    _log_audit("DATA_RELOAD", f"Nodes: {len(_service.graph.nodes())}, Edges: {len(_service.graph.edges())}")
-    return {"status": "Data reloaded successfully", "nodes": len(_service.graph.nodes()), "edges": len(_service.graph.edges())}
+    node_count = _service.get_node_count()
+    edge_count = _service.get_edge_count()
+    _log_audit("DATA_RELOAD", f"Nodes: {node_count}, Edges: {edge_count}")
+    return {"status": "Data reloaded successfully", "nodes": node_count, "edges": edge_count}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -643,6 +662,64 @@ def get_vendor_anomalies():
         _service.gstr3b_df, _service.fraud_labels_df
     )
     return {"anomalies": engine.detect_vendor_anomalies()}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  XGBOOST ML FRAUD CLASSIFICATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+_xgb_classifier = None
+
+
+def _get_xgb_classifier():
+    """Get or create the XGBoost classifier (lazy init + auto-train)."""
+    global _xgb_classifier
+    _ensure_service_loaded()
+    if _xgb_classifier is None:
+        _xgb_classifier = XGBoostFraudClassifier(
+            _service.gstr1_df, _service.gstr2b_df,
+            _service.gstr3b_df, _service.fraud_labels_df,
+        )
+    return _xgb_classifier
+
+
+@app.post("/api/v1/ml/train")
+def train_xgboost():
+    """Train the XGBoost fraud classifier."""
+    clf = _get_xgb_classifier()
+    result = clf.train()
+    _log_audit("ML_TRAIN", f"XGBoost trained: {result.get('metrics', {}).get('accuracy', 'N/A')} accuracy")
+    return result
+
+
+@app.get("/api/v1/ml/predict/{gstin}")
+def predict_fraud(gstin: str):
+    """Predict fraud probability for a specific GSTIN using XGBoost."""
+    clf = _get_xgb_classifier()
+    prediction = clf.predict(gstin)
+    _log_audit("ML_PREDICT", f"{gstin}: {prediction['fraud_probability']:.2%} fraud probability")
+    return prediction
+
+
+@app.get("/api/v1/ml/predict-all")
+def predict_all_fraud():
+    """Predict fraud probability for all taxpayers using XGBoost."""
+    clf = _get_xgb_classifier()
+    result = clf.predict_all()
+    _log_audit("ML_PREDICT_ALL", f"Predicted {result['total_taxpayers']} taxpayers, {result['predicted_fraud']} flagged")
+    return result
+
+
+@app.get("/api/v1/ml/feature-importance")
+def get_feature_importance():
+    """Get XGBoost feature importance scores."""
+    clf = _get_xgb_classifier()
+    if not clf.feature_importance:
+        clf.train()
+    return {
+        "feature_importance": clf.feature_importance,
+        "metrics": clf.metrics,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -703,7 +780,7 @@ def export_mismatches():
 def export_fraud_report():
     """Export full fraud analysis as JSON."""
     _ensure_service_loaded()
-    engine = FraudDetectionEngine(_service.graph, _service.gstr1_df, _service.fraud_labels_df)
+    engine = FraudDetectionEngine(_service.gstr1_df, _service.fraud_labels_df)
     patterns = engine.detect_all_patterns()
     _log_audit("EXPORT_FRAUD", f"Exported fraud report with {patterns['summary']['total_patterns']} patterns")
     return {"data": patterns, "exported_at": datetime.utcnow().isoformat()}
@@ -714,7 +791,7 @@ def export_risk_leaderboard():
     """Export risk leaderboard as JSON."""
     _ensure_service_loaded()
     engine = RiskScoringEngine(
-        _service.graph, _service.gstr1_df, _service.gstr2b_df,
+        _service.gstr1_df, _service.gstr2b_df,
         _service.gstr3b_df, _service.fraud_labels_df
     )
     lb = engine.get_leaderboard()

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, Search, ChevronDown, AlertTriangle, CheckCircle, XCircle, ArrowUpDown, Download } from 'lucide-react';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 const SEVERITY_STYLES = {
     CRITICAL: 'bg-rose-100 text-rose-700 border-rose-200',
@@ -113,27 +112,27 @@ export default function ReconciliationPage() {
             {/* Summary Cards */}
             <div className="flex justify-between items-center">
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4 flex-1">
-                <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm text-center">
-                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Total Invoices</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">{summary.total_invoices || 0}</p>
-                </div>
-                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200 shadow-sm text-center">
-                    <p className="text-xs text-emerald-600 font-medium uppercase tracking-wide">Reconciled</p>
-                    <p className="text-2xl font-bold text-emerald-700 mt-1">{summary.fully_reconciled || 0}</p>
-                    <p className="text-xs text-emerald-500 mt-1">{summary.reconciliation_rate || 0}%</p>
-                </div>
-                <div className="bg-rose-50 rounded-xl p-4 border border-rose-200 shadow-sm text-center">
-                    <p className="text-xs text-rose-600 font-medium uppercase tracking-wide">Missing GSTR-1</p>
-                    <p className="text-2xl font-bold text-rose-700 mt-1">{summary.missing_in_gstr1 || 0}</p>
-                </div>
-                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200 shadow-sm text-center">
-                    <p className="text-xs text-orange-600 font-medium uppercase tracking-wide">Value Mismatch</p>
-                    <p className="text-2xl font-bold text-orange-700 mt-1">{summary.value_mismatch || 0}</p>
-                </div>
-                <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 shadow-sm text-center">
-                    <p className="text-xs text-amber-600 font-medium uppercase tracking-wide">ITC Overclaim</p>
-                    <p className="text-2xl font-bold text-amber-700 mt-1">{summary.itc_overclaimed_count || 0}</p>
-                </div>
+                    <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm text-center">
+                        <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Total Invoices</p>
+                        <p className="text-2xl font-bold text-slate-900 mt-1">{summary.total_invoices || 0}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200 shadow-sm text-center">
+                        <p className="text-xs text-emerald-600 font-medium uppercase tracking-wide">Reconciled</p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-1">{summary.fully_reconciled || 0}</p>
+                        <p className="text-xs text-emerald-500 mt-1">{summary.reconciliation_rate || 0}%</p>
+                    </div>
+                    <div className="bg-rose-50 rounded-xl p-4 border border-rose-200 shadow-sm text-center">
+                        <p className="text-xs text-rose-600 font-medium uppercase tracking-wide">Missing GSTR-1</p>
+                        <p className="text-2xl font-bold text-rose-700 mt-1">{summary.missing_in_gstr1 || 0}</p>
+                    </div>
+                    <div className="bg-orange-50 rounded-xl p-4 border border-orange-200 shadow-sm text-center">
+                        <p className="text-xs text-orange-600 font-medium uppercase tracking-wide">Value Mismatch</p>
+                        <p className="text-2xl font-bold text-orange-700 mt-1">{summary.value_mismatch || 0}</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 shadow-sm text-center">
+                        <p className="text-xs text-amber-600 font-medium uppercase tracking-wide">ITC Overclaim</p>
+                        <p className="text-2xl font-bold text-amber-700 mt-1">{summary.itc_overclaimed_count || 0}</p>
+                    </div>
                 </div>
                 <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-md self-start mt-2 ml-4 flex-shrink-0">
                     <Download size={16} /> Export CSV

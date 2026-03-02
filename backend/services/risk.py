@@ -1,19 +1,19 @@
 """
 RiskScoringEngine — Compute risk scores for each taxpayer using
-features from DataFrames + NetworkX graph metrics.
+features from DataFrames + Neo4j graph metrics (Cypher queries).
 """
 
 import networkx as nx
 import pandas as pd
+from services.neo4j_driver import run_read_query
 
 
 class RiskScoringEngine:
     """Compute risk scores using graph features + filing behavior."""
 
-    def __init__(self, graph: nx.DiGraph, gstr1_df: pd.DataFrame,
+    def __init__(self, gstr1_df: pd.DataFrame,
                  gstr2b_df: pd.DataFrame, gstr3b_df: pd.DataFrame,
                  fraud_labels_df: pd.DataFrame):
-        self.graph = graph
         self.gstr1 = gstr1_df
         self.gstr2b = gstr2b_df
         self.gstr3b = gstr3b_df
@@ -21,26 +21,70 @@ class RiskScoringEngine:
         self._pagerank = None
 
     def _get_pagerank(self) -> dict:
-        """Compute and cache PageRank scores."""
+        """Compute and cache PageRank scores via Neo4j → NetworkX."""
         if self._pagerank is None:
             try:
-                if len(self.graph) > 0:
-                    self._pagerank = nx.pagerank(self.graph, alpha=0.85, max_iter=100)
-                else:
+                # Fetch edges from Neo4j
+                edges = run_read_query(
+                    "MATCH (a:Taxpayer)-[:INVOICE]->(b:Taxpayer) RETURN a.gstin AS src, b.gstin AS dst"
+                )
+                if not edges:
                     self._pagerank = {}
+                    return self._pagerank
+
+                # Build lightweight in-memory graph for PageRank
+                G = nx.DiGraph()
+                for edge in edges:
+                    G.add_edge(edge["src"], edge["dst"])
+
+                # Add isolated nodes
+                nodes = run_read_query("MATCH (t:Taxpayer) RETURN t.gstin AS gstin")
+                for node in nodes:
+                    G.add_node(node["gstin"])
+
+                self._pagerank = nx.pagerank(G, alpha=0.85, max_iter=100)
             except Exception:
                 self._pagerank = {}
         return self._pagerank
+
+    def _get_in_degree(self, gstin: str) -> int:
+        """Get in-degree of a GSTIN from Neo4j."""
+        result = run_read_query(
+            "MATCH ()-[r:INVOICE]->(t:Taxpayer {gstin: $gstin}) RETURN count(r) AS cnt",
+            {"gstin": gstin},
+        )
+        return result[0]["cnt"] if result else 0
+
+    def _get_out_degree(self, gstin: str) -> int:
+        """Get out-degree of a GSTIN from Neo4j."""
+        result = run_read_query(
+            "MATCH (t:Taxpayer {gstin: $gstin})-[r:INVOICE]->() RETURN count(r) AS cnt",
+            {"gstin": gstin},
+        )
+        return result[0]["cnt"] if result else 0
+
+    def _node_exists(self, gstin: str) -> bool:
+        """Check if a GSTIN exists as a Taxpayer node in Neo4j."""
+        result = run_read_query(
+            "MATCH (t:Taxpayer {gstin: $gstin}) RETURN count(t) AS cnt",
+            {"gstin": gstin},
+        )
+        return result[0]["cnt"] > 0 if result else False
+
+    def _get_all_gstins(self) -> list[str]:
+        """Get all Taxpayer GSTINs from Neo4j."""
+        result = run_read_query("MATCH (t:Taxpayer) RETURN t.gstin AS gstin")
+        return [r["gstin"] for r in result]
 
     def extract_features(self, gstin: str) -> dict:
         """Extract all risk features for a single GSTIN."""
         features = {}
 
-        # 1. Graph features
+        # 1. Graph features (from Neo4j)
         pagerank = self._get_pagerank()
         features["pagerank_score"] = round(pagerank.get(gstin, 0), 6)
-        features["in_degree"] = self.graph.in_degree(gstin) if gstin in self.graph else 0
-        features["out_degree"] = self.graph.out_degree(gstin) if gstin in self.graph else 0
+        features["in_degree"] = self._get_in_degree(gstin) if self._node_exists(gstin) else 0
+        features["out_degree"] = self._get_out_degree(gstin) if self._node_exists(gstin) else 0
 
         # 2. Invoice features
         if not self.gstr1.empty:
@@ -164,10 +208,10 @@ class RiskScoringEngine:
 
     def get_leaderboard(self, top_n: int = 20) -> list[dict]:
         """Get the top-N riskiest taxpayers."""
-        if len(self.graph) == 0:
+        all_gstins = self._get_all_gstins()
+        if not all_gstins:
             return []
 
-        all_gstins = list(self.graph.nodes())
         results = []
 
         for gstin in all_gstins:

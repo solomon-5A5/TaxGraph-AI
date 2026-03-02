@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 
 import {
   Network, LayoutDashboard, Receipt, Bell, Plus,
   RefreshCw, Search, Shield, MessageSquare, AlertTriangle,
-  Activity, X, CheckCircle, XCircle, Info, History
+  Activity, X, CheckCircle, XCircle, Info, History, Brain
 } from 'lucide-react';
 
 import DashboardPage from './pages/DashboardPage';
@@ -13,8 +13,8 @@ import GraphPage from './pages/GraphPage';
 import AlertsPage from './pages/AlertsPage';
 import QueryPage from './pages/QueryPage';
 import AnomalyPage from './pages/AnomalyPage';
-
-const API = 'http://127.0.0.1:8000';
+import MLPage from './pages/MLPage';
+import { API } from './config';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,12 +22,13 @@ const NAV_ITEMS = [
   { to: '/graph', label: 'Graph Analysis', icon: Network },
   { to: '/fraud', label: 'Fraud Detection', icon: Shield },
   { to: '/anomalies', label: 'Anomalies', icon: Activity },
+  { to: '/ml', label: 'ML Classifier', icon: Brain },
   { to: '/alerts', label: 'Alerts', icon: Bell, badge: true },
   { to: '/query', label: 'NL Query', icon: MessageSquare },
 ];
 
 /* ── Toast Notification System ── */
-const ToastContext = React.createContext(() => {});
+const ToastContext = React.createContext(() => { });
 export const useToast = () => React.useContext(ToastContext);
 
 function ToastContainer({ toasts, removeToast }) {
@@ -61,6 +62,7 @@ function ToastContainer({ toasts, removeToast }) {
 
 function AppLayout() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [hasData, setHasData] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [backendStatus, setBackendStatus] = useState('checking');
@@ -84,11 +86,24 @@ function AppLayout() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  // Backend health check
+  // Backend health check and data presence check
   useEffect(() => {
     const check = () => {
       fetch(`${API}/api/v1/stats`, { signal: AbortSignal.timeout(3000) })
-        .then(r => r.ok ? setBackendStatus('online') : setBackendStatus('error'))
+        .then(async r => {
+          if (r.ok) {
+            setBackendStatus('online');
+            const data = await r.json();
+            if (!data.total_invoices || data.total_invoices === 0) {
+              setHasData(false);
+              setIsModalOpen(true);
+            } else {
+              setHasData(true);
+            }
+          } else {
+            setBackendStatus('error');
+          }
+        })
         .catch(() => setBackendStatus('offline'));
     };
     check();
@@ -143,6 +158,7 @@ function AppLayout() {
       '/graph': 'Network Graph Analysis',
       '/fraud': 'Fraud Detection Engine',
       '/anomalies': 'Statistical Anomaly Detection',
+      '/ml': 'XGBoost ML Classifier',
       '/alerts': 'Alert Center',
       '/query': 'Natural Language Query',
     };
@@ -291,6 +307,7 @@ function AppLayout() {
                 <Route path="/graph" element={<GraphPage />} />
                 <Route path="/fraud" element={<FraudPage />} />
                 <Route path="/anomalies" element={<AnomalyPage />} />
+                <Route path="/ml" element={<MLPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/query" element={<QueryPage />} />
               </Routes>
@@ -320,8 +337,13 @@ function AppLayout() {
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-bold text-slate-900">Upload Forensic Data</h3>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+                <div>
+                  <h3 className="font-bold text-slate-900">Upload Forensic Data</h3>
+                  {!hasData && <p className="text-xs text-rose-500 font-medium mt-1">Please insert data to begin analysis.</p>}
+                </div>
+                {hasData && (
+                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+                )}
               </div>
 
               <form onSubmit={handleUpload} className="p-6 space-y-4">

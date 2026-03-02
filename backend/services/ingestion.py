@@ -1,15 +1,22 @@
 """
-GSTIngestionService — Ingests GST filing data into Pandas DataFrames + NetworkX graph.
+GSTIngestionService — Ingests GST filing data into Pandas DataFrames + Neo4j graph.
 Provides validated, deduplicated data to all downstream engines.
 """
 
 import pandas as pd
-import networkx as nx
 import os
+from services.neo4j_driver import (
+    run_write_query,
+    run_read_query,
+    clear_database,
+    create_indexes,
+    get_node_count,
+    get_edge_count,
+)
 
 
 class GSTIngestionService:
-    """Central data service holding all DataFrames + NetworkX DiGraph."""
+    """Central data service holding all DataFrames + Neo4j graph."""
 
     def __init__(self):
         self.taxpayers_df = pd.DataFrame()
@@ -17,7 +24,6 @@ class GSTIngestionService:
         self.gstr2b_df = pd.DataFrame()
         self.gstr3b_df = pd.DataFrame()
         self.fraud_labels_df = pd.DataFrame()
-        self.graph = nx.DiGraph()
 
     # ──────────────────────────────────────────────
     # Public: Load from disk (backward-compatible)
@@ -52,7 +58,7 @@ class GSTIngestionService:
     # Public: Ingest from DataFrames
     # ──────────────────────────────────────────────
     def ingest_taxpayers_df(self, df: pd.DataFrame):
-        """Validate and store taxpayer master data, add nodes to graph."""
+        """Validate and store taxpayer master data, add nodes to Neo4j."""
         if df.empty:
             return
         df = self._validate_and_dedup(df, key_cols=["gstin"])
@@ -63,18 +69,27 @@ class GSTIngestionService:
 
         self.taxpayers_df = df
 
-        # Add nodes to NetworkX graph
+        # Add nodes to Neo4j graph (batch MERGE)
         for _, row in df.iterrows():
-            attrs = {
-                "legal_name": row.get("legal_name", "Unknown"),
-                "status": row.get("status", "Active"),
-                "trust_score": float(row.get("trust_score", 0.5)),
-                "state_code": row.get("state_code", 0),
-            }
-            self.graph.add_node(row["gstin"], **attrs)
+            run_write_query(
+                """
+                MERGE (t:Taxpayer {gstin: $gstin})
+                SET t.legal_name = $legal_name,
+                    t.status = $status,
+                    t.trust_score = $trust_score,
+                    t.state_code = $state_code
+                """,
+                {
+                    "gstin": row["gstin"],
+                    "legal_name": row.get("legal_name", "Unknown"),
+                    "status": row.get("status", "Active"),
+                    "trust_score": float(row.get("trust_score", 0.5)),
+                    "state_code": int(row.get("state_code", 0)),
+                },
+            )
 
     def ingest_gstr1_df(self, df: pd.DataFrame):
-        """Validate and store GSTR-1 outward supply data, add edges to graph."""
+        """Validate and store GSTR-1 outward supply data, add edges to Neo4j."""
         if df.empty:
             return
         df = self._validate_and_dedup(df, key_cols=["invoice_id"])
@@ -86,17 +101,26 @@ class GSTIngestionService:
 
         self.gstr1_df = df
 
-        # Add edges to NetworkX graph
+        # Add invoice edges to Neo4j graph
         for _, row in df.iterrows():
             supplier = row.get("supplier_gstin")
             receiver = row.get("receiver_gstin")
             if pd.notna(supplier) and pd.notna(receiver):
-                self.graph.add_edge(
-                    supplier,
-                    receiver,
-                    invoice_id=row.get("invoice_id"),
-                    total_value=float(row.get("total_value", 0)),
-                    tax_amount=float(row.get("tax_amount", 0)),
+                run_write_query(
+                    """
+                    MERGE (s:Taxpayer {gstin: $supplier})
+                    MERGE (r:Taxpayer {gstin: $receiver})
+                    MERGE (s)-[inv:INVOICE {invoice_id: $invoice_id}]->(r)
+                    SET inv.total_value = $total_value,
+                        inv.tax_amount = $tax_amount
+                    """,
+                    {
+                        "supplier": supplier,
+                        "receiver": receiver,
+                        "invoice_id": row.get("invoice_id"),
+                        "total_value": float(row.get("total_value", 0)),
+                        "tax_amount": float(row.get("tax_amount", 0)),
+                    },
                 )
 
     def ingest_gstr2b_df(self, df: pd.DataFrame):
@@ -153,17 +177,30 @@ class GSTIngestionService:
     # Public: Rebuild graph from current DataFrames
     # ──────────────────────────────────────────────
     def rebuild_graph(self):
-        """Rebuild the NetworkX DiGraph from current DataFrames."""
-        self.graph = nx.DiGraph()
+        """Rebuild the Neo4j graph from current DataFrames."""
+        # Clear all existing data in Neo4j
+        clear_database()
+        create_indexes()
 
         # Add taxpayer nodes
         if not self.taxpayers_df.empty:
             for _, row in self.taxpayers_df.iterrows():
-                self.graph.add_node(row["gstin"], **{
-                    "legal_name": row.get("legal_name", "Unknown"),
-                    "status": row.get("status", "Active"),
-                    "trust_score": float(row.get("trust_score", 0.5)),
-                })
+                run_write_query(
+                    """
+                    MERGE (t:Taxpayer {gstin: $gstin})
+                    SET t.legal_name = $legal_name,
+                        t.status = $status,
+                        t.trust_score = $trust_score,
+                        t.state_code = $state_code
+                    """,
+                    {
+                        "gstin": row["gstin"],
+                        "legal_name": row.get("legal_name", "Unknown"),
+                        "status": row.get("status", "Active"),
+                        "trust_score": float(row.get("trust_score", 0.5)),
+                        "state_code": int(row.get("state_code", 0)),
+                    },
+                )
 
         # Add invoice edges from GSTR-1
         if not self.gstr1_df.empty:
@@ -171,11 +208,37 @@ class GSTIngestionService:
                 supplier = row.get("supplier_gstin")
                 receiver = row.get("receiver_gstin")
                 if pd.notna(supplier) and pd.notna(receiver):
-                    self.graph.add_edge(supplier, receiver, **{
-                        "invoice_id": row.get("invoice_id"),
-                        "total_value": float(row.get("total_value", 0)),
-                        "tax_amount": float(row.get("tax_amount", 0)),
-                    })
+                    run_write_query(
+                        """
+                        MERGE (s:Taxpayer {gstin: $supplier})
+                        MERGE (r:Taxpayer {gstin: $receiver})
+                        MERGE (s)-[inv:INVOICE {invoice_id: $invoice_id}]->(r)
+                        SET inv.total_value = $total_value,
+                            inv.tax_amount = $tax_amount
+                        """,
+                        {
+                            "supplier": supplier,
+                            "receiver": receiver,
+                            "invoice_id": row.get("invoice_id"),
+                            "total_value": float(row.get("total_value", 0)),
+                            "tax_amount": float(row.get("tax_amount", 0)),
+                        },
+                    )
+
+        node_count = get_node_count()
+        edge_count = get_edge_count()
+        print(f"📊 Neo4j graph rebuilt: {node_count} nodes, {edge_count} edges")
+
+    # ──────────────────────────────────────────────
+    # Public: Get graph counts (replaces len(self.graph.nodes/edges))
+    # ──────────────────────────────────────────────
+    def get_node_count(self) -> int:
+        """Get total number of Taxpayer nodes in Neo4j."""
+        return get_node_count()
+
+    def get_edge_count(self) -> int:
+        """Get total number of INVOICE relationships in Neo4j."""
+        return get_edge_count()
 
     # ──────────────────────────────────────────────
     # Public: Check if data is loaded

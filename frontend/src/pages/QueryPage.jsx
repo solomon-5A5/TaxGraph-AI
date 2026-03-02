@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Send, RefreshCw, MessageSquare, Code, Table, AlertTriangle } from 'lucide-react';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 const EXAMPLE_QUERIES = [
     "Show all invoices above 10 lakhs",

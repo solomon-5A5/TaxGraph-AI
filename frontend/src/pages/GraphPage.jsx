@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, ChevronRight, Shield } from 'lucide-react';
 import NetworkGraph from '../NetworkGraph';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 export default function GraphPage() {
     const [graphData, setGraphData] = useState({ nodes: [], links: [] });

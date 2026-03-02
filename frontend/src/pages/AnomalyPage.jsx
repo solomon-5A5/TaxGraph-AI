@@ -4,8 +4,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
     ScatterChart, Scatter, ZAxis, Legend
 } from 'recharts';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 const SEVERITY_STYLE = {
     HIGH: 'bg-rose-100 text-rose-700 border-rose-200',

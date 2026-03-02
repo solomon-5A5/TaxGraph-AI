@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, AlertTriangle, Bell, CheckCircle, Filter, Shield } from 'lucide-react';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 const SEVERITY_CONFIG = {
     CRITICAL: { bg: 'bg-rose-50', border: 'border-rose-200', badge: 'bg-rose-100 text-rose-700 border-rose-200', icon: Shield, iconColor: 'text-rose-500' },

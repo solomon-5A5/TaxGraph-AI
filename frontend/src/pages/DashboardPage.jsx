@@ -8,8 +8,7 @@ import {
     ResponsiveContainer, Legend
 } from 'recharts';
 import NetworkGraph from '../NetworkGraph';
-
-const API = 'http://127.0.0.1:8000';
+import { API } from '../config';
 
 /* ── Animated Number Counter ── */
 function AnimatedNumber({ value, duration = 1200, prefix = '', suffix = '' }) {
@@ -131,7 +130,7 @@ export default function DashboardPage() {
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = `risk-leaderboard-${new Date().toISOString().slice(0,10)}.csv`;
+            a.href = url; a.download = `risk-leaderboard-${new Date().toISOString().slice(0, 10)}.csv`;
             a.click(); URL.revokeObjectURL(url);
         } catch { /* silently fail */ }
     };
